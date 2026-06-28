@@ -48,7 +48,7 @@ export default function Login() {
 
         {/* HEADER SECTION: Flexbox container for logos + title */}
         <div className="flex items-center justify-center gap-x-4 mb-8">
-          <img src="/logo_konica.png" alt="Logo 1" className="h-12 w-auto object-contain" />
+          <img src="../assets/logo_konica.png" alt="Logo 1" className="h-12 w-auto object-contain" />
 
           <div className="text-center">
             <h1 className="text-2xl font-extrabold text-[#003A70] tracking-tight">KMBS - MUTANȚII</h1>
