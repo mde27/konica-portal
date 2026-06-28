@@ -1,9 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import logo1 from '../assets/logo_konica.png';
-import logo2 from '../assets/logo_mutantii.png';
-
 export default function Login() {
   const navigate = useNavigate();
   const [username, setUsername] = useState('');
@@ -51,14 +48,14 @@ export default function Login() {
 
         {/* HEADER SECTION: Flexbox container for logos + title */}
         <div className="flex items-center justify-center gap-x-4 mb-8">
-          <img src={logo1} alt="Logo 1" className="h-12 w-auto object-contain" />
+          <img src="/logo_konica.png" alt="Logo 1" className="h-12 w-auto object-contain" />
 
           <div className="text-center">
             <h1 className="text-2xl font-extrabold text-[#003A70] tracking-tight">KMBS - MUTANȚII</h1>
             <p className="text-xs text-gray-500">Work Tracking Portal</p>
           </div>
 
-          <img src={logo2} alt="Logo 2" className="h-12 w-auto object-contain" />
+          <img src="/logo_mutantii.png" alt="Logo 2" className="h-12 w-auto object-contain" />
         </div>
 
         <form onSubmit={handleLoginSubmit} className="space-y-4">
