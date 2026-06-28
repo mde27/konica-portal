@@ -117,7 +117,7 @@ export default function Technician() {
         
         {/* HEADER & SEARCH */}
         <div className="mb-6 space-y-4">
-          <h2 className="text-2xl font-extrabold text-[#003A70]">Munkák listája</h2>
+          <h2 className="text-2xl font-extrabold text-[#003A70]">Job list</h2>
           
           <div className="relative">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
