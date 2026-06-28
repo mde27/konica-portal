@@ -54,7 +54,7 @@ export default function Login() {
           <img src={logo1} alt="Logo 1" className="h-12 w-auto object-contain" />
 
           <div className="text-center">
-            <h1 className="text-2xl font-extrabold text-[#003A70] tracking-tight">KONICA</h1>
+            <h1 className="text-2xl font-extrabold text-[#003A70] tracking-tight">KMBS - MUTANȚII</h1>
             <p className="text-xs text-gray-500">Work Tracking Portal</p>
           </div>
 
