@@ -64,6 +64,43 @@ export default function KonicaAdmin() {
     const handleSubmitToDatabase = async () => {
         if (excelData.length === 0) return alert("Please upload a file first.");
 
+        // ==========================================
+        // NEW: DUPLICATE CHECK LOGIC
+        // ==========================================
+        // 1. Get a list of all existing shipment numbers (convert to string to be safe)
+        const existingShipments = new Set(jobs.map(job => String(job.shipment_number).trim()));
+
+        // 2. Sort the Excel data into "New" and "Duplicates"
+        const uniqueJobs = [];
+        const duplicateShipments = [];
+
+        excelData.forEach(job => {
+            const currentShipment = String(job.shipment_number).trim();
+            if (existingShipments.has(currentShipment)) {
+                duplicateShipments.push(currentShipment);
+            } else {
+                uniqueJobs.push(job);
+            }
+        });
+
+        // 3. If duplicates exist, warn the user and ask how to proceed
+        if (duplicateShipments.length > 0) {
+            const proceed = window.confirm(
+                `⚠️ Found ${duplicateShipments.length} duplicate shipment(s) that are already in the database.\n\n` +
+                `Duplicates: ${duplicateShipments.slice(0, 5).join(', ')}${duplicateShipments.length > 5 ? ' ...and more' : ''}\n\n` +
+                `Do you want to skip these duplicates and upload the remaining ${uniqueJobs.length} new jobs?`
+            );
+            if (!proceed) return; // Stop if the user clicks "Cancel"
+        }
+
+        // 4. If there are no unique jobs left, stop the upload completely
+        if (uniqueJobs.length === 0) {
+            return alert("All jobs in this Excel file already exist in the database. Nothing new to upload.");
+        }
+
+        // ==========================================
+        // ORIGINAL UPLOAD LOGIC (Using uniqueJobs instead of excelData)
+        // ==========================================
         try {
             console.log("Sending data to Google Sheets...");
 
@@ -73,14 +110,14 @@ export default function KonicaAdmin() {
                 body: JSON.stringify({
                     action: "uploadJobs",
                     requestingUser: currentUser,
-                    jobs: excelData
+                    jobs: uniqueJobs // CRITICAL: Only send the filtered, unique list!
                 }),
             });
 
             const result = await response.json();
 
             if (result.status === "success") {
-                alert(`Success! Placed ${excelData.length} work orders into the database.`);
+                alert(`Success! Placed ${uniqueJobs.length} new work orders into the database.`);
                 setExcelData([]);
                 setFileName('');
                 fetchJobs(); // Refresh the database view instantly
