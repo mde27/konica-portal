@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Navbar from '../components/Navbar';
+import { Analytics } from "@vercel/analytics/next"
 
 export default function Technician() {
   const [jobs, setJobs] = useState([]);
