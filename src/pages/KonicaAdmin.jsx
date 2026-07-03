@@ -5,11 +5,15 @@ import { jsPDF } from "jspdf";
 
 export default function KonicaAdmin() {
     // TAB STATE
-    const [activeTab, setActiveTab] = useState('upload'); // 'upload' or 'view'
+    const [activeTab, setActiveTab] = useState('upload'); // 'upload', 'view', or 'upload-pdf'
 
-    // UPLOAD STATE
+    // UPLOAD EXCEL STATE
     const [excelData, setExcelData] = useState([]);
     const [fileName, setFileName] = useState('');
+
+    // UPLOAD PDF STATE
+    const [pdfFile, setPdfFile] = useState(null);
+    const [isUploadingPdf, setIsUploadingPdf] = useState(false);
 
     // VIEW STATE
     const [jobs, setJobs] = useState([]);
@@ -21,7 +25,6 @@ export default function KonicaAdmin() {
     const API_URL = "https://script.google.com/macros/s/AKfycbw07COOO4-hmQ3wGQ-9erc4qcEVS_NvyKBLOAGye24KoqQrXXmtmvUNoktjVVyG1Cej/exec";
     const currentUser = localStorage.getItem('username') || "Unknown Konica Admin";
 
-    // FETCH JOBS ON MOUNT
     useEffect(() => { 
         fetchJobs(); 
     }, []);
@@ -40,14 +43,12 @@ export default function KonicaAdmin() {
     };
 
     // ==========================================
-    // UPLOAD LOGIC
+    // EXCEL UPLOAD LOGIC
     // ==========================================
     const handleFileUpload = (e) => {
         const file = e.target.files[0];
         if (!file) return;
-
         setFileName(file.name);
-
         const reader = new FileReader();
         reader.onload = (event) => {
             const arrayBuffer = event.target.result;
@@ -55,7 +56,6 @@ export default function KonicaAdmin() {
             const firstSheetName = workbook.SheetNames[0];
             const worksheet = workbook.Sheets[firstSheetName];
             const rawJson = XLSX.utils.sheet_to_json(worksheet);
-
             setExcelData(rawJson);
         };
         reader.readAsArrayBuffer(file);
@@ -64,13 +64,7 @@ export default function KonicaAdmin() {
     const handleSubmitToDatabase = async () => {
         if (excelData.length === 0) return alert("Please upload a file first.");
 
-        // ==========================================
-        // NEW: DUPLICATE CHECK LOGIC
-        // ==========================================
-        // 1. Get a list of all existing shipment numbers (convert to string to be safe)
         const existingShipments = new Set(jobs.map(job => String(job.shipment_number).trim()));
-
-        // 2. Sort the Excel data into "New" and "Duplicates"
         const uniqueJobs = [];
         const duplicateShipments = [];
 
@@ -83,57 +77,97 @@ export default function KonicaAdmin() {
             }
         });
 
-        // 3. If duplicates exist, warn the user and ask how to proceed
         if (duplicateShipments.length > 0) {
             const proceed = window.confirm(
                 `⚠️ Found ${duplicateShipments.length} duplicate shipment(s) that are already in the database.\n\n` +
                 `Duplicates: ${duplicateShipments.slice(0, 5).join(', ')}${duplicateShipments.length > 5 ? ' ...and more' : ''}\n\n` +
                 `Do you want to skip these duplicates and upload the remaining ${uniqueJobs.length} new jobs?`
             );
-            if (!proceed) return; // Stop if the user clicks "Cancel"
+            if (!proceed) return;
         }
 
-        // 4. If there are no unique jobs left, stop the upload completely
         if (uniqueJobs.length === 0) {
             return alert("All jobs in this Excel file already exist in the database. Nothing new to upload.");
         }
 
-        // ==========================================
-        // ORIGINAL UPLOAD LOGIC (Using uniqueJobs instead of excelData)
-        // ==========================================
         try {
-            console.log("Sending data to Google Sheets...");
-
             const response = await fetch(API_URL, {
                 method: "POST",
                 headers: { "Content-Type": "text/plain;charset=utf-8" },
                 body: JSON.stringify({
                     action: "uploadJobs",
                     requestingUser: currentUser,
-                    jobs: uniqueJobs // CRITICAL: Only send the filtered, unique list!
+                    jobs: uniqueJobs
                 }),
             });
 
             const result = await response.json();
-
             if (result.status === "success") {
                 alert(`Success! Placed ${uniqueJobs.length} new work orders into the database.`);
                 setExcelData([]);
                 setFileName('');
-                fetchJobs(); // Refresh the database view instantly
-                setActiveTab('view'); // Automatically switch to the view tab
+                fetchJobs();
+                setActiveTab('view');
             } else {
                 alert("Server Error: " + result.message);
             }
-
         } catch (error) {
-            console.error("Database Error:", error);
-            alert("Failed to send data. Check the console.");
+            alert("Failed to send data.");
         }
     };
 
     // ==========================================
-    // VIEW & EXPORT LOGIC
+    // PDF UPLOAD LOGIC
+    // ==========================================
+    const handlePdfSelect = (e) => {
+        const file = e.target.files[0];
+        if (file && file.type === "application/pdf") {
+            setPdfFile(file);
+        } else {
+            alert("Please select a valid PDF file.");
+            e.target.value = null; // reset input
+        }
+    };
+
+    const handlePdfUpload = async () => {
+        if (!pdfFile) return alert("Please select a PDF file first.");
+        setIsUploadingPdf(true);
+
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+            // Remove the "data:application/pdf;base64," prefix
+            const base64Data = event.target.result.split(',')[1]; 
+            
+            try {
+                const response = await fetch(API_URL, {
+                    method: "POST",
+                    headers: { "Content-Type": "text/plain;charset=utf-8" },
+                    body: JSON.stringify({
+                        action: "uploadPdf",
+                        requestingUser: currentUser,
+                        fileName: pdfFile.name,
+                        fileBase64: base64Data
+                    })
+                });
+
+                const result = await response.json();
+                if (result.status === "success") {
+                    alert("PDF successfully uploaded to Google Drive!");
+                    setPdfFile(null); // Clear the file
+                } else {
+                    alert("Error saving PDF: " + result.message);
+                }
+            } catch (error) {
+                alert("Network error uploading PDF.");
+            } finally {
+                setIsUploadingPdf(false);
+            }
+        };
+        reader.readAsDataURL(pdfFile);
+    };
+
+    // ==========================================
+    // EXPORT & PDF GENERATOR
     // ==========================================
     const handleWeeklyExport = () => {
         if (jobs.length === 0) return alert("No data to export.");
@@ -186,7 +220,6 @@ export default function KonicaAdmin() {
             }
             doc.save(`WorkOrder_${job.shipment_number}.pdf`);
         } catch (err) {
-            console.error(err);
             alert("Network Error generating PDF.");
         } finally {
             setGeneratingPdfId(null);
@@ -211,24 +244,29 @@ export default function KonicaAdmin() {
             <main className="p-4 md:p-8 max-w-7xl mx-auto w-full flex-grow">
                 
                 {/* TAB NAVIGATION */}
-                <div className="flex space-x-2 border-b border-gray-200 mb-6 mt-2">
+                <div className="flex space-x-2 border-b border-gray-200 mb-6 mt-2 overflow-x-auto">
                     <button 
                         onClick={() => setActiveTab('upload')}
-                        className={`px-6 py-3 font-bold text-sm tracking-wide transition-all duration-200 ${activeTab === 'upload' ? 'text-[#003A70] border-b-2 border-[#003A70]' : 'text-gray-500 hover:text-gray-700'}`}
+                        className={`px-6 py-3 font-bold text-sm tracking-wide whitespace-nowrap transition-all duration-200 ${activeTab === 'upload' ? 'text-[#003A70] border-b-2 border-[#003A70]' : 'text-gray-500 hover:text-gray-700'}`}
                     >
                         📤 UPLOAD JOBS
                     </button>
                     <button 
                         onClick={() => setActiveTab('view')}
-                        className={`px-6 py-3 font-bold text-sm tracking-wide transition-all duration-200 ${activeTab === 'view' ? 'text-[#003A70] border-b-2 border-[#003A70]' : 'text-gray-500 hover:text-gray-700'}`}
+                        className={`px-6 py-3 font-bold text-sm tracking-wide whitespace-nowrap transition-all duration-200 ${activeTab === 'view' ? 'text-[#003A70] border-b-2 border-[#003A70]' : 'text-gray-500 hover:text-gray-700'}`}
                     >
                         🗄️ VIEW DATABASE
                     </button>
+                    {/* NEW TAB FOR PDF */}
+                    <button 
+                        onClick={() => setActiveTab('upload-pdf')}
+                        className={`px-6 py-3 font-bold text-sm tracking-wide whitespace-nowrap transition-all duration-200 ${activeTab === 'upload-pdf' ? 'text-[#003A70] border-b-2 border-[#003A70]' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                        📄 UPLOAD FORWARDED WORKS
+                    </button>
                 </div>
 
-                {/* ========================================== */}
                 {/* TAB 1: UPLOAD JOBS */}
-                {/* ========================================== */}
                 {activeTab === 'upload' && (
                     <div className="animate-fade-in-up">
                         <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100 mb-8 max-w-3xl">
@@ -266,36 +304,12 @@ export default function KonicaAdmin() {
                                         ✅ Confirm & Upload to Database
                                     </button>
                                 </div>
-                                <div className="overflow-x-auto max-h-[500px]">
-                                    <table className="w-full text-left border-collapse">
-                                        <thead className="sticky top-0 bg-[#003A70] text-white shadow">
-                                            <tr className="text-sm uppercase tracking-wider">
-                                                <th className="p-4 font-medium">Shipment #</th>
-                                                <th className="p-4 font-medium">Device Model</th>
-                                                <th className="p-4 font-medium">City</th>
-                                                <th className="p-4 font-medium">Customer</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-gray-100">
-                                            {excelData.map((row, index) => (
-                                                <tr key={index} className="hover:bg-blue-50/30 transition text-sm text-gray-700">
-                                                    <td className="p-4 font-bold">{row.shipment_number || '—'}</td>
-                                                    <td className="p-4">{row.device_model || '—'}</td>
-                                                    <td className="p-4">{row.city || '—'}</td>
-                                                    <td className="p-4">{row.customer || '—'}</td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
                             </div>
                         )}
                     </div>
                 )}
 
-                {/* ========================================== */}
                 {/* TAB 2: VIEW DATABASE */}
-                {/* ========================================== */}
                 {activeTab === 'view' && (
                     <div className="animate-fade-in-up">
                         <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
@@ -379,6 +393,53 @@ export default function KonicaAdmin() {
                                     )}
                                 </tbody>
                             </table>
+                        </div>
+                    </div>
+                )}
+
+                {/* TAB 3: UPLOAD PDF MANUALS */}
+                {activeTab === 'upload-pdf' && (
+                    <div className="animate-fade-in-up">
+                        <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100 max-w-3xl">
+                            <h2 className="text-xl font-bold text-[#003A70] mb-4">Upload PDF Document to Drive</h2>
+                            <p className="text-gray-600 mb-6 text-sm"></p>
+                            
+                            <div className="border-2 border-dashed border-red-200 rounded-lg p-8 text-center bg-red-50/30">
+                                <input
+                                    type="file"
+                                    accept=".pdf"
+                                    onChange={handlePdfSelect}
+                                    className="hidden"
+                                    id="pdf-upload"
+                                />
+                                <label
+                                    htmlFor="pdf-upload"
+                                    className="cursor-pointer inline-block bg-red-600 text-white px-6 py-2.5 rounded-md font-medium hover:bg-red-700 transition shadow-sm mb-4"
+                                >
+                                    Select PDF File
+                                </label>
+                                
+                                {pdfFile ? (
+                                    <div className="bg-white p-4 rounded border border-red-100 mt-2 text-left flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                            <span className="text-2xl">📄</span>
+                                            <div>
+                                                <p className="font-bold text-gray-800 text-sm">{pdfFile.name}</p>
+                                                <p className="text-xs text-gray-500">{(pdfFile.size / 1024 / 1024).toFixed(2)} MB</p>
+                                            </div>
+                                        </div>
+                                        <button 
+                                            onClick={handlePdfUpload}
+                                            disabled={isUploadingPdf}
+                                            className={`${isUploadingPdf ? 'bg-gray-400' : 'bg-green-600 hover:bg-green-700'} text-white px-4 py-2 rounded-md font-bold text-sm transition`}
+                                        >
+                                            {isUploadingPdf ? 'Uploading...' : 'Upload to Drive'}
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <p className="text-sm text-gray-500">No file selected.</p>
+                                )}
+                            </div>
                         </div>
                     </div>
                 )}

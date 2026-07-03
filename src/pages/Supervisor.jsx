@@ -4,18 +4,25 @@ import * as XLSX from 'xlsx';
 import { jsPDF } from "jspdf"; 
 
 export default function Supervisor() {
+  const [activeTab, setActiveTab] = useState('dashboard'); // 'dashboard' or 'pdfs'
+  
+  // Dashboard State
   const [jobs, setJobs] = useState([]);
   const [filter, setFilter] = useState('ALL');
-  // NEW: Search term state
   const [searchTerm, setSearchTerm] = useState('');
   const [isLoading, setIsLoading] = useState(true);
-  
-  // Track which PDF is currently loading
   const [generatingPdfId, setGeneratingPdfId] = useState(null);
+
+  // PDF Viewer State
+  const [pdfList, setPdfList] = useState([]);
+  const [isLoadingPdfs, setIsLoadingPdfs] = useState(false);
 
   const API_URL = "https://script.google.com/macros/s/AKfycbw07COOO4-hmQ3wGQ-9erc4qcEVS_NvyKBLOAGye24KoqQrXXmtmvUNoktjVVyG1Cej/exec";
 
-  useEffect(() => { fetchJobs(); }, []);
+  useEffect(() => { 
+      fetchJobs(); 
+      fetchPdfs();
+  }, []);
 
   const fetchJobs = async () => {
     setIsLoading(true);
@@ -24,9 +31,56 @@ export default function Supervisor() {
       const data = await response.json();
       setJobs(data.works.reverse());
     } catch (error) {
-      console.error("Failed to fetch", error);
+      console.error("Failed to fetch jobs", error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const fetchPdfs = async () => {
+    setIsLoadingPdfs(true);
+    try {
+        const response = await fetch(API_URL, {
+            method: "POST",
+            headers: { "Content-Type": "text/plain;charset=utf-8" },
+            body: JSON.stringify({ action: "getPdfs" })
+        });
+        const data = await response.json();
+        // Skip the header row and reverse it so newest is at the top
+        if(data.pdfs && data.pdfs.length > 1) {
+             setPdfList(data.pdfs.slice(1).reverse());
+        }
+    } catch (error) {
+        console.error("Failed to fetch PDFs", error);
+    } finally {
+        setIsLoadingPdfs(false);
+    }
+  };
+
+  // ==========================================
+  // NEW: HANDLE MARK AS READ
+  // ==========================================
+  const handleViewPdf = async (pdf) => {
+    // 1. Open the PDF in a new tab immediately
+    window.open(pdf.url, '_blank', 'noreferrer');
+
+    // 2. If it's currently UNREAD, mark it as READ
+    if (pdf.status !== 'READ') {
+        // Optimistic UI Update: instantly hide the "NEW" badge on the screen
+        setPdfList(prevList => prevList.map(p => 
+            p.url === pdf.url ? { ...p, status: 'READ' } : p
+        ));
+
+        // Background API call to update Google Sheets
+        try {
+            await fetch(API_URL, {
+                method: "POST",
+                headers: { "Content-Type": "text/plain;charset=utf-8" },
+                body: JSON.stringify({ action: "markPdfRead", url: pdf.url })
+            });
+        } catch (error) {
+            console.error("Failed to update read status", error);
+        }
     }
   };
 
@@ -39,24 +93,19 @@ export default function Supervisor() {
     XLSX.writeFile(workbook, `Supervisor_Weekly_Export_${dateStr}.xlsx`);
   };
 
-  // UPGRADED: Async PDF Generator with Embedded Images
   const downloadPDF = async (job) => {
-    setGeneratingPdfId(job.shipment_number); // Show loading state
+    setGeneratingPdfId(job.shipment_number); 
     
     try {
       const doc = new jsPDF();
-
       doc.setFontSize(22);
       doc.setTextColor(0, 58, 112); 
       doc.text("Konica Minolta - Work Order", 20, 20);
-
       doc.setFontSize(12);
       doc.setTextColor(job.status === 'GREEN' ? 22 : 0, job.status === 'GREEN' ? 163 : 102, job.status === 'GREEN' ? 74 : 204); 
       doc.text(`STATUS: ${job.status}`, 20, 30);
-
       doc.setDrawColor(200, 200, 200);
       doc.line(20, 35, 190, 35);
-
       doc.setTextColor(50, 50, 50);
       doc.setFontSize(12);
       doc.text(`Shipment Number: ${job.shipment_number || 'N/A'}`, 20, 45);
@@ -64,14 +113,12 @@ export default function Supervisor() {
       doc.text(`Device Model: ${job.device_model || 'N/A'}`, 20, 65);
       doc.text(`City: ${job.city || 'N/A'}`, 20, 75);
       if (job.location) doc.text(`GPS Verification: ${job.location}`, 20, 85);
-
       doc.line(20, 95, 190, 95);
       
       if (job.photo_url) {
         doc.setTextColor(0, 0, 0);
         doc.text("Proof of Work:", 20, 105);
         
-        // --- FETCH SECURE IMAGE VIA API ---
         const response = await fetch(API_URL, {
           method: "POST",
           headers: { "Content-Type": "text/plain;charset=utf-8" },
@@ -80,7 +127,6 @@ export default function Supervisor() {
         const result = await response.json();
 
         if (result.status === "success") {
-          // Embed the base64 image (x: 20, y: 115, width: 120, height: 90)
           doc.addImage(result.base64, 'JPEG', 20, 115, 120, 90);
         } else {
           doc.setTextColor(255, 0, 0);
@@ -90,17 +136,14 @@ export default function Supervisor() {
         doc.setTextColor(150, 150, 150);
         doc.text("Proof of Work: Awaiting field completion.", 20, 105);
       }
-
       doc.save(`WorkOrder_${job.shipment_number}.pdf`);
     } catch (err) {
-      console.error(err);
       alert("Network Error generating PDF.");
     } finally {
-      setGeneratingPdfId(null); // Clear loading state
+      setGeneratingPdfId(null); 
     }
   };
 
-  // NEW: Filter applies BOTH the status buttons AND the search bar
   const filteredJobs = jobs.filter(job => {
     const matchesFilter = filter === 'ALL' || job.status === filter;
     const matchesSearch = (
@@ -116,90 +159,181 @@ export default function Supervisor() {
     <div className="min-h-screen flex flex-col bg-[#F5F7FA]">
       <Navbar title="Supervisor Dashboard" />
       <main className="p-8 max-w-7xl mx-auto w-full flex-grow">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-2xl font-bold text-[#003A70]">Global Work Orders</h2>
-          <div className="flex gap-4 items-center">
-            <button onClick={handleWeeklyExport} className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md font-medium text-sm transition shadow-sm flex items-center gap-2">
-              📥 Export to Excel
+        
+        {/* TABS */}
+        <div className="flex space-x-2 border-b border-gray-200 mb-6 mt-2 overflow-x-auto">
+            <button 
+                onClick={() => setActiveTab('dashboard')}
+                className={`px-6 py-3 font-bold text-sm tracking-wide whitespace-nowrap transition-all duration-200 ${activeTab === 'dashboard' ? 'text-[#003A70] border-b-2 border-[#003A70]' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+                🗄️ WORKS DASHBOARD
             </button>
-            <div className="flex gap-2 bg-white p-1 rounded-lg shadow-sm border border-gray-100">
-              <button onClick={() => setFilter('ALL')} className={`px-4 py-2 rounded-md font-medium text-sm transition ${filter === 'ALL' ? 'bg-[#003A70] text-white' : 'text-gray-600 hover:bg-gray-100'}`}>All</button>
-              <button onClick={() => setFilter('BLUE')} className={`px-4 py-2 rounded-md font-medium text-sm transition ${filter === 'BLUE' ? 'bg-blue-500 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>Pending</button>
-              <button onClick={() => setFilter('GREEN')} className={`px-4 py-2 rounded-md font-medium text-sm transition ${filter === 'GREEN' ? 'bg-green-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>Completed</button>
-            </div>
-          </div>
+            <button 
+                onClick={() => setActiveTab('pdfs')}
+                className={`px-6 py-3 font-bold text-sm tracking-wide whitespace-nowrap transition-all duration-200 ${activeTab === 'pdfs' ? 'text-[#003A70] border-b-2 border-[#003A70]' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+                📚 DOCUMENT LIBRARY
+            </button>
         </div>
 
-        {/* NEW: Search Bar */}
-        <div className="mb-6 relative">
-          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-            <span className="text-gray-400">🔍</span>
-          </div>
-          <input 
-            type="text" 
-            placeholder="Search works by ID, Customer, City, or Model..." 
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl shadow-sm focus:ring-2 focus:ring-[#003A70] outline-none transition bg-white"
-          />
-        </div>
+        {/* TAB 1: DASHBOARD */}
+        {activeTab === 'dashboard' && (
+            <div className="animate-fade-in-up">
+                <div className="flex justify-between items-center mb-6">
+                <h2 className="text-2xl font-bold text-[#003A70]">Global Work Orders</h2>
+                <div className="flex gap-4 items-center">
+                    <button onClick={handleWeeklyExport} className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md font-medium text-sm transition shadow-sm flex items-center gap-2">
+                    📥 Export to Excel
+                    </button>
+                    <div className="flex gap-2 bg-white p-1 rounded-lg shadow-sm border border-gray-100">
+                    <button onClick={() => setFilter('ALL')} className={`px-4 py-2 rounded-md font-medium text-sm transition ${filter === 'ALL' ? 'bg-[#003A70] text-white' : 'text-gray-600 hover:bg-gray-100'}`}>All</button>
+                    <button onClick={() => setFilter('BLUE')} className={`px-4 py-2 rounded-md font-medium text-sm transition ${filter === 'BLUE' ? 'bg-blue-500 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>Pending</button>
+                    <button onClick={() => setFilter('GREEN')} className={`px-4 py-2 rounded-md font-medium text-sm transition ${filter === 'GREEN' ? 'bg-green-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>Completed</button>
+                    </div>
+                </div>
+                </div>
 
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-gray-50 text-gray-600 text-xs uppercase tracking-wider border-b border-gray-100">
-                <th className="p-4 font-semibold">Status</th>
-                <th className="p-4 font-semibold">Shipment #</th>
-                <th className="p-4 font-semibold">Device / City</th>
-                <th className="p-4 font-semibold">Customer</th>
-                <th className="p-4 font-semibold">Verification</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {isLoading ? (
-                <tr><td colSpan="5" className="p-8 text-center text-gray-500 font-medium">Loading database...</td></tr>
-              ) : (
-                filteredJobs.map((job, index) => {
-                  // NEW: Check if this job has any comments
-                  const hasComments = job.comments && job.comments.trim() !== '';
+                <div className="mb-6 relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <span className="text-gray-400">🔍</span>
+                </div>
+                <input 
+                    type="text" 
+                    placeholder="Search works by ID, Customer, City, or Model..." 
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl shadow-sm focus:ring-2 focus:ring-[#003A70] outline-none transition bg-white"
+                />
+                </div>
 
-                  return (
-                    <tr key={index} className="hover:bg-gray-50 transition">
-                      <td className="p-4"><span className={`text-white text-xs font-bold px-3 py-1 rounded-full uppercase ${job.status === 'GREEN' ? 'bg-green-600' : 'bg-blue-500'}`}>{job.status}</span></td>
-                      <td className="p-4 font-bold text-gray-900">
-                        {/* NEW: Display Shipment number alongside the pulsing dot if comments exist */}
-                        <div className="flex items-center gap-2">
-                          <span>{job.shipment_number || '—'}</span>
-                          {hasComments && (
-                            <span className="flex h-3 w-3 relative" title={`Comments:\n${job.comments}`}>
-                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                              <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="p-4"><div className="font-medium text-gray-800">{job.device_model || '—'}</div><div className="text-xs text-gray-500 mt-0.5">{job.city || '—'}</div></td>
-                      <td className="p-4 font-medium text-gray-700">{job.customer || '—'}</td>
-                      <td className="p-4">
-                        <div className="flex gap-4 items-center">
-                          {job.photo_url ? <a href={job.photo_url} target="_blank" rel="noreferrer" className="text-blue-600 hover:text-blue-800 font-medium text-sm flex items-center gap-1">📷 Photo</a> : <span className="text-gray-400 text-sm">Awaiting</span>}
-                          <button 
-                            onClick={() => downloadPDF(job)} 
-                            disabled={generatingPdfId === job.shipment_number}
-                            className={`${generatingPdfId === job.shipment_number ? 'text-orange-500' : 'text-gray-500 hover:text-[#003A70]'} text-sm font-bold flex items-center gap-1 transition`}
-                          >
-                            {generatingPdfId === job.shipment_number ? '⏳ Loading...' : '📄 PDF'}
-                          </button>
-                        </div>
-                        {job.location && <div className="text-xs text-gray-500 mt-1">📍 {job.location}</div>}
-                      </td>
+                <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                <table className="w-full text-left border-collapse">
+                    <thead>
+                    <tr className="bg-gray-50 text-gray-600 text-xs uppercase tracking-wider border-b border-gray-100">
+                        <th className="p-4 font-semibold">Status</th>
+                        <th className="p-4 font-semibold">Shipment #</th>
+                        <th className="p-4 font-semibold">Device / City</th>
+                        <th className="p-4 font-semibold">Customer</th>
+                        <th className="p-4 font-semibold">Verification</th>
                     </tr>
-                  )
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                    {isLoading ? (
+                        <tr><td colSpan="5" className="p-8 text-center text-gray-500 font-medium">Loading database...</td></tr>
+                    ) : (
+                        filteredJobs.map((job, index) => {
+                        const hasComments = job.comments && job.comments.trim() !== '';
+
+                        return (
+                            <tr key={index} className="hover:bg-gray-50 transition">
+                            <td className="p-4"><span className={`text-white text-xs font-bold px-3 py-1 rounded-full uppercase ${job.status === 'GREEN' ? 'bg-green-600' : 'bg-blue-500'}`}>{job.status}</span></td>
+                            <td className="p-4 font-bold text-gray-900">
+                                <div className="flex items-center gap-2">
+                                <span>{job.shipment_number || '—'}</span>
+                                {hasComments && (
+                                    <span className="flex h-3 w-3 relative" title={`Comments:\n${job.comments}`}>
+                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                                    <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
+                                    </span>
+                                )}
+                                </div>
+                            </td>
+                            <td className="p-4"><div className="font-medium text-gray-800">{job.device_model || '—'}</div><div className="text-xs text-gray-500 mt-0.5">{job.city || '—'}</div></td>
+                            <td className="p-4 font-medium text-gray-700">{job.customer || '—'}</td>
+                            <td className="p-4">
+                                <div className="flex gap-4 items-center">
+                                {job.photo_url ? <a href={job.photo_url} target="_blank" rel="noreferrer" className="text-blue-600 hover:text-blue-800 font-medium text-sm flex items-center gap-1">📷 Photo</a> : <span className="text-gray-400 text-sm">Awaiting</span>}
+                                <button 
+                                    onClick={() => downloadPDF(job)} 
+                                    disabled={generatingPdfId === job.shipment_number}
+                                    className={`${generatingPdfId === job.shipment_number ? 'text-orange-500' : 'text-gray-500 hover:text-[#003A70]'} text-sm font-bold flex items-center gap-1 transition`}
+                                >
+                                    {generatingPdfId === job.shipment_number ? '⏳ Loading...' : '📄 PDF'}
+                                </button>
+                                </div>
+                                {job.location && <div className="text-xs text-gray-500 mt-1">📍 {job.location}</div>}
+                            </td>
+                            </tr>
+                        )
+                        })
+                    )}
+                    </tbody>
+                </table>
+                </div>
+            </div>
+        )}
+
+        {/* TAB 2: DOCUMENT LIBRARY */}
+        {activeTab === 'pdfs' && (
+            <div className="animate-fade-in-up">
+                <div className="flex justify-between items-center mb-6">
+                    <h2 className="text-2xl font-bold text-[#003A70]">Reference Documents</h2>
+                    <button 
+                        onClick={fetchPdfs} 
+                        className="text-sm font-medium text-gray-500 hover:text-[#003A70] transition flex items-center gap-1"
+                    >
+                        🔄 Refresh List
+                    </button>
+                </div>
+
+                <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden max-w-4xl">
+                    <table className="w-full text-left border-collapse">
+                        <thead>
+                            <tr className="bg-gray-50 text-gray-600 text-xs uppercase tracking-wider border-b border-gray-100">
+                                <th className="p-4 font-semibold">Document Name</th>
+                                <th className="p-4 font-semibold">Uploaded Date</th>
+                                <th className="p-4 font-semibold">Uploaded By</th>
+                                <th className="p-4 font-semibold text-right">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                            {isLoadingPdfs ? (
+                                <tr><td colSpan="4" className="p-8 text-center text-gray-500 font-medium">Loading documents...</td></tr>
+                            ) : pdfList.length === 0 ? (
+                                <tr><td colSpan="4" className="p-8 text-center text-gray-500 font-medium">No documents have been uploaded yet.</td></tr>
+                            ) : (
+                                pdfList.map((pdf, index) => {
+                                    const isUnread = pdf.status !== 'READ';
+                                    
+                                    return (
+                                        <tr key={index} className={`transition ${isUnread ? 'bg-blue-50/30' : 'hover:bg-gray-50'}`}>
+                                            <td className="p-4">
+                                                <div className="flex items-center gap-3">
+                                                    <span className="text-xl">📄</span>
+                                                    <span className={`text-sm ${isUnread ? 'font-bold text-[#003A70]' : 'font-medium text-gray-700'}`}>
+                                                        {pdf.fileName}
+                                                    </span>
+                                                    {isUnread && (
+                                                        <span className="bg-blue-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider shadow-sm animate-pulse">
+                                                            New
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </td>
+                                            <td className="p-4 text-sm text-gray-600">{pdf.timestamp}</td>
+                                            <td className="p-4 text-sm text-gray-600">{pdf.uploadedBy}</td>
+                                            <td className="p-4 text-right">
+                                                <button 
+                                                    onClick={() => handleViewPdf(pdf)}
+                                                    className={`inline-block px-4 py-1.5 rounded text-sm font-medium transition shadow-sm ${
+                                                        isUnread 
+                                                            ? 'bg-[#003A70] text-white hover:bg-[#002850]' 
+                                                            : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                                                    }`}
+                                                >
+                                                    {isUnread ? 'Review PDF' : 'View Again'}
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    );
+                                })
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        )}
+
       </main>
     </div>
   );
