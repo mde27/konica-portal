@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import Navbar from '../components/Navbar';
 import * as XLSX from 'xlsx';
 import { jsPDF } from "jspdf";
-import { Analytics } from "@vercel/analytics/next"
 
 export default function KonicaAdmin() {
     // TAB STATE
