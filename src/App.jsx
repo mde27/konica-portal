@@ -6,7 +6,7 @@ import Technician from './pages/Technician';
 import Supervisor from './pages/Supervisor';
 import SystemAdmin from './pages/SystemAdmin';
 import ProtectedRoute from './components/ProtectedRoute';
-import { Analytics } from "@vercel/analytics/next";
+
 
 function App() {
   return (

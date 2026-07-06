@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import Navbar from '../components/Navbar';
-import { Analytics } from "@vercel/analytics/next"
 
 export default function Technician() {
   const [jobs, setJobs] = useState([]);
@@ -10,8 +9,11 @@ export default function Technician() {
   // States for interacting with specific jobs
   const [commentInputs, setCommentInputs] = useState({});
   const [actionLoading, setActionLoading] = useState(null);
+  
+  // NEW: State to hold the uploaded photos before sending
+  const [photoData, setPhotoData] = useState({});
 
-  const API_URL = "https://script.google.com/macros/s/AKfycbw07COOO4-hmQ3wGQ-9erc4qcEVS_NvyKBLOAGye24KoqQrXXmtmvUNoktjVVyG1Cej/exec"; // Ensure this is your latest URL!
+  const API_URL = "https://script.google.com/macros/s/AKfycbw07COOO4-hmQ3wGQ-9erc4qcEVS_NvyKBLOAGye24KoqQrXXmtmvUNoktjVVyG1Cej/exec"; 
   const currentUser = localStorage.getItem('username') || 'Technician';
 
   useEffect(() => {
@@ -23,7 +25,6 @@ export default function Technician() {
     try {
       const response = await fetch(API_URL);
       const data = await response.json();
-      // Only show jobs that haven't been completed yet (BLUE), or you can remove the filter to show all!
       setJobs(data.works.reverse()); 
     } catch (error) {
       console.error("Failed to fetch jobs", error);
@@ -51,8 +52,8 @@ export default function Technician() {
       
       const result = await response.json();
       if (result.status === "success") {
-        setCommentInputs({ ...commentInputs, [shipment_number]: '' }); // Clear input
-        fetchJobs(); // Refresh to show new comment
+        setCommentInputs({ ...commentInputs, [shipment_number]: '' }); 
+        fetchJobs(); 
       } else {
         alert("Error adding comment.");
       }
@@ -63,20 +64,45 @@ export default function Technician() {
     }
   };
 
+  // NEW: Handle file selection and convert to Base64
+  const handlePhotoSelect = (shipment_number, file) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      setPhotoData(prev => ({ ...prev, [shipment_number]: e.target.result }));
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // NEW: A Promise wrapper that FORCES the code to wait for the GPS coordinates
+  const getGPSLocation = () => {
+    return new Promise((resolve) => {
+      if (!navigator.geolocation) {
+        resolve("GPS Not Supported");
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        (pos) => resolve(`${pos.coords.latitude}, ${pos.coords.longitude}`),
+        (err) => resolve("GPS Denied/Unavailable"),
+        { timeout: 10000 } // Wait up to 10 seconds for a lock
+      );
+    });
+  };
+
   const handleCompleteJob = async (shipment_number) => {
-    // Basic completion logic - assuming you prompt for a photo or have a file input setup
+    // 1. Check if they attached a photo first!
+    const base64Image = photoData[shipment_number];
+    if (!base64Image) {
+        return alert("Please upload a photo of the completed work first.");
+    }
+
     const confirmComplete = window.confirm(`Mark shipment ${shipment_number} as completed?`);
     if (!confirmComplete) return;
 
     setActionLoading(shipment_number + '_complete');
     
-    // Simulate getting GPS location
-    let locationStr = "GPS Data Unavailable";
-    if (navigator.geolocation) {
-       navigator.geolocation.getCurrentPosition((pos) => {
-           locationStr = `${pos.coords.latitude}, ${pos.coords.longitude}`;
-       });
-    }
+    // 2. AWAIT the GPS location so it doesn't skip ahead
+    const locationStr = await getGPSLocation();
 
     try {
       const response = await fetch(API_URL, {
@@ -86,15 +112,17 @@ export default function Technician() {
           action: "completeJob",
           requestingUser: currentUser,
           shipment_number: shipment_number,
-          location: locationStr,
-          // photoBase64: ... (Insert your photo capture logic here if needed)
+          location: locationStr, // Now this will actually contain the coordinates!
+          photoBase64: base64Image
         })
       });
       
       const result = await response.json();
       if (result.status === "success") {
         alert("Job Marked as Completed!");
-        fetchJobs(); // Refresh the list
+        fetchJobs(); 
+      } else {
+        alert("Failed to complete job: " + result.message);
       }
     } catch (error) {
       alert("Network error.");
@@ -103,7 +131,6 @@ export default function Technician() {
     }
   };
 
-  // Filter jobs based on the search bar
   const filteredJobs = jobs.filter(job => 
     (job.shipment_number && job.shipment_number.toLowerCase().includes(searchTerm.toLowerCase())) ||
     (job.customer && job.customer.toLowerCase().includes(searchTerm.toLowerCase())) ||
@@ -162,7 +189,7 @@ export default function Technician() {
                   <p>🖨️ {job.device_model}</p>
                 </div>
 
-                {/* Comments Section (Visible for all statuses) */}
+                {/* Comments Section */}
                 <div className="mb-4 bg-gray-50 p-3 rounded-lg border border-gray-100">
                   <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Comments</h4>
                   
@@ -192,15 +219,33 @@ export default function Technician() {
                   </div>
                 </div>
 
-                {/* Action Section (Only show complete button if it's BLUE) */}
+                {/* Action Section (Photo + Complete Button for Pending Jobs) */}
                 {job.status !== 'GREEN' && (
-                  <div className="pt-2">
+                  <div className="pt-2 border-t border-gray-100 mt-4">
+                    
+                    {/* The Photo Upload Input */}
+                    <div className="mb-4 mt-2">
+                      <label className="block text-sm font-bold text-gray-700 mb-2">📸 Proof of Work (Required)</label>
+                      <input 
+                        type="file" 
+                        accept="image/*"
+                        capture="environment" // Hint to mobile browsers to open the camera directly
+                        onChange={(e) => handlePhotoSelect(job.shipment_number, e.target.files[0])}
+                        className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-[#003A70] hover:file:bg-blue-100 cursor-pointer"
+                      />
+                      {photoData[job.shipment_number] && (
+                        <p className="text-xs text-green-600 mt-2 font-medium flex items-center gap-1">
+                          ✅ Photo attached and ready
+                        </p>
+                      )}
+                    </div>
+
                     <button 
                       onClick={() => handleCompleteJob(job.shipment_number)}
                       disabled={actionLoading === job.shipment_number + '_complete'}
                       className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-lg transition shadow-sm flex items-center justify-center gap-2"
                     >
-                      {actionLoading === job.shipment_number + '_complete' ? 'Processing...' : '✅ Mark as Completed'}
+                      {actionLoading === job.shipment_number + '_complete' ? 'Getting GPS & Saving...' : '✅ Mark as Completed'}
                     </button>
                   </div>
                 )}
