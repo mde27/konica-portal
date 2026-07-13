@@ -7,13 +7,11 @@ export default function Technician() {
   
   const [jobs, setJobs] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [filter, setFilter] = useState('ALL'); // NEW: Status filter
   const [isLoading, setIsLoading] = useState(true);
 
-  // States for interacting with specific jobs
   const [commentInputs, setCommentInputs] = useState({});
   const [actionLoading, setActionLoading] = useState(null);
-
-  // State to hold the uploaded photos before sending
   const [photoData, setPhotoData] = useState({});
 
   const API_URL = "https://script.google.com/macros/s/AKfycbw07COOO4-hmQ3wGQ-9erc4qcEVS_NvyKBLOAGye24KoqQrXXmtmvUNoktjVVyG1Cej/exec";
@@ -28,9 +26,7 @@ export default function Technician() {
       const response = await fetch(API_URL);
       const data = await response.json();
 
-      // SECURITY FILTER: Only keep jobs assigned to myCompany!
       const myJobs = data.works.filter(job => job.company === myCompany);
-
       setJobs(myJobs.reverse()); 
     } catch (error) {
       console.error("Failed to fetch jobs", error);
@@ -70,7 +66,6 @@ export default function Technician() {
     }
   };
 
-  // Handle file selection and convert to Base64
   const handlePhotoSelect = (shipment_number, file) => {
     if (!file) return;
     const reader = new FileReader();
@@ -80,7 +75,6 @@ export default function Technician() {
     reader.readAsDataURL(file);
   };
 
-  // A Promise wrapper that FORCES the code to wait for the GPS coordinates
   const getGPSLocation = () => {
     return new Promise((resolve) => {
       if (!navigator.geolocation) {
@@ -90,13 +84,12 @@ export default function Technician() {
       navigator.geolocation.getCurrentPosition(
         (pos) => resolve(`${pos.coords.latitude}, ${pos.coords.longitude}`),
         (err) => resolve("GPS Denied/Unavailable"),
-        { timeout: 10000 } // Wait up to 10 seconds for a lock
+        { timeout: 10000 }
       );
     });
   };
 
   const handleCompleteJob = async (shipment_number) => {
-    // 1. Check if they attached a photo first!
     const base64Image = photoData[shipment_number];
     if (!base64Image) {
       return alert("Please upload a photo of the completed work first.");
@@ -107,7 +100,6 @@ export default function Technician() {
 
     setActionLoading(shipment_number + '_complete');
 
-    // 2. AWAIT the GPS location so it doesn't skip ahead
     const locationStr = await getGPSLocation();
 
     try {
@@ -137,12 +129,16 @@ export default function Technician() {
     }
   };
 
-  // UPGRADED: String() wrappers applied to prevent the .toLowerCase() crash!
-  const filteredJobs = jobs.filter(job =>
-    (job.shipment_number && String(job.shipment_number).toLowerCase().includes(searchTerm.toLowerCase())) ||
-    (job.customer && String(job.customer).toLowerCase().includes(searchTerm.toLowerCase())) ||
-    (job.city && String(job.city).toLowerCase().includes(searchTerm.toLowerCase()))
-  );
+  // UPDATED: Now includes status filter + search
+  const filteredJobs = jobs.filter(job => {
+    const matchesFilter = filter === 'ALL' || job.status === filter;
+    const matchesSearch = (
+      (job.shipment_number && String(job.shipment_number).toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (job.customer && String(job.customer).toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (job.city && String(job.city).toLowerCase().includes(searchTerm.toLowerCase()))
+    );
+    return matchesFilter && matchesSearch;
+  });
 
   return (
     <div className="min-h-screen flex flex-col bg-[#F5F7FA]">
@@ -150,21 +146,48 @@ export default function Technician() {
 
       <main className="p-4 md:p-8 max-w-4xl mx-auto w-full flex-grow">
 
-        {/* HEADER & SEARCH */}
+        {/* HEADER */}
         <div className="mb-6 space-y-4">
           <h2 className="text-2xl font-extrabold text-[#003A70]">Job list</h2>
 
-          <div className="relative">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <span className="text-gray-400">🔍</span>
+          {/* FILTER BUTTONS + SEARCH */}
+          <div className="flex flex-col md:flex-row gap-3 md:items-center md:justify-between">
+            
+            {/* Status Filter */}
+            <div className="flex gap-2 bg-white p-1 rounded-lg shadow-sm border border-gray-100 w-fit">
+              <button 
+                onClick={() => setFilter('ALL')} 
+                className={`px-4 py-1.5 rounded-md text-sm font-medium transition ${filter === 'ALL' ? 'bg-[#003A70] text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+              >
+                All
+              </button>
+              <button 
+                onClick={() => setFilter('BLUE')} 
+                className={`px-4 py-1.5 rounded-md text-sm font-medium transition ${filter === 'BLUE' ? 'bg-blue-500 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+              >
+                Pending
+              </button>
+              <button 
+                onClick={() => setFilter('GREEN')} 
+                className={`px-4 py-1.5 rounded-md text-sm font-medium transition ${filter === 'GREEN' ? 'bg-green-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+              >
+                Completed
+              </button>
             </div>
-            <input
-              type="text"
-              placeholder="Search by Shipment #, Customer, or City..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl shadow-sm focus:ring-2 focus:ring-[#003A70] outline-none transition"
-            />
+
+            {/* Search */}
+            <div className="relative flex-1 max-w-md">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <span className="text-gray-400">🔍</span>
+              </div>
+              <input
+                type="text"
+                placeholder="Search by Shipment #, Customer, or City..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl shadow-sm focus:ring-2 focus:ring-[#003A70] outline-none transition bg-white"
+              />
+            </div>
           </div>
         </div>
 
@@ -180,7 +203,7 @@ export default function Technician() {
             {filteredJobs.map((job, index) => (
               <div key={index} className="bg-white rounded-xl shadow-sm border border-gray-200 p-5 overflow-hidden">
 
-                {/* Job Header Info */}
+                {/* Job Header */}
                 <div className="flex justify-between items-start mb-3">
                   <div>
                     <h3 className="font-bold text-lg text-gray-900">{job.shipment_number || "No ID"}</h3>
@@ -196,7 +219,7 @@ export default function Technician() {
                   <p>🖨️ {job.device_model}</p>
                 </div>
 
-                {/* NEW: Logistics Dates Display */}
+                {/* Logistics Dates */}
                 <div className="grid grid-cols-3 gap-2 text-xs text-gray-700 bg-blue-50/50 p-3 rounded-lg mb-4 border border-blue-100">
                     <div><span className="font-bold text-[#003A70] block mb-0.5">Trimitere</span>{job.trimitere || '-'}</div>
                     <div><span className="font-bold text-[#003A70] block mb-0.5">Încărcare</span>{job.incarcare || '-'}</div>
@@ -233,11 +256,10 @@ export default function Technician() {
                   </div>
                 </div>
 
-                {/* Action Section (Photo + Complete Button for Pending Jobs) */}
+                {/* Action Section */}
                 {job.status !== 'GREEN' && (
                   <div className="pt-2 border-t border-gray-100 mt-4">
 
-                    {/* The Photo Upload Input */}
                     <div className="mb-4 mt-2">
                       <label className="block text-sm font-bold text-gray-700 mb-2">📸 Proof of Work (Required)</label>
                       <input
@@ -264,7 +286,7 @@ export default function Technician() {
                   </div>
                 )}
 
-                {/* Show Completion Timestamp if GREEN */}
+                {/* Completion Info */}
                 {job.status === 'GREEN' && job.completed_at && (
                   <div className="text-xs text-center text-green-800 font-medium bg-green-100 py-3 rounded-lg mt-3 border border-green-200">
                     <div>Completed on: {new Date(job.completed_at).toLocaleString('ro-RO')}</div>
