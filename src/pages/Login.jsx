@@ -26,6 +26,9 @@ export default function Login() {
       if (result.status === "success") {
         localStorage.setItem('userRole', result.role);
         localStorage.setItem('username', username);
+        
+        // ---> THIS IS THE NEW LINE FOR STEP 3 <---
+        localStorage.setItem('company', result.company);
 
         // Route based on the 4 roles
         if (result.role === 'admin') navigate('/admin');

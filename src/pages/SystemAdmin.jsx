@@ -1,15 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import Navbar from '../components/Navbar';
-import * as XLSX from 'xlsx'; 
-import { jsPDF } from "jspdf"; 
+import * as XLSX from 'xlsx';
+import { jsPDF } from "jspdf";
 
 export default function SystemAdmin() {
-  const [activeTab, setActiveTab] = useState('works'); 
+  const [activeTab, setActiveTab] = useState('works');
   const [data, setData] = useState({ works: [], users: [], logs: [] });
   const [isLoading, setIsLoading] = useState(true);
   const [generatingPdfId, setGeneratingPdfId] = useState(null); // Track PDF Loading
-  
-  const [newUser, setNewUser] = useState({ username: '', password: '', role: 'technician' });
+
+  const [newUser, setNewUser] = useState({ username: '', password: '', role: 'technician', company: 'RED' });
 
   const API_URL = "https://script.google.com/macros/s/AKfycbw07COOO4-hmQ3wGQ-9erc4qcEVS_NvyKBLOAGye24KoqQrXXmtmvUNoktjVVyG1Cej/exec";
   const currentUser = localStorage.getItem('username');
@@ -45,14 +45,15 @@ export default function SystemAdmin() {
           requestingUser: currentUser,
           newUsername: newUser.username,
           newPassword: newUser.password,
-          newRole: newUser.role
+          newRole: newUser.role,
+          newCompany: newUser.company
         })
       });
       const result = await response.json();
       if (result.status === "success") {
         alert("User created successfully!");
-        setNewUser({ username: '', password: '', role: 'technician' });
-        fetchDashboardData(); 
+        setNewUser({ username: '', password: '', role: 'technician', company: 'RED' });
+        fetchDashboardData();
       } else {
         alert("Error: " + result.message);
       }
@@ -76,16 +77,16 @@ export default function SystemAdmin() {
 
   // UPGRADED: Async PDF Generator with Embedded Images
   const downloadPDF = async (job) => {
-    setGeneratingPdfId(job.shipment_number); 
-    
+    setGeneratingPdfId(job.shipment_number);
+
     try {
       const doc = new jsPDF();
       doc.setFontSize(22);
-      doc.setTextColor(0, 58, 112); 
+      doc.setTextColor(0, 58, 112);
       doc.text("Konica Minolta - Work Order", 20, 20);
 
       doc.setFontSize(12);
-      doc.setTextColor(job.status === 'GREEN' ? 22 : 0, job.status === 'GREEN' ? 163 : 102, job.status === 'GREEN' ? 74 : 204); 
+      doc.setTextColor(job.status === 'GREEN' ? 22 : 0, job.status === 'GREEN' ? 163 : 102, job.status === 'GREEN' ? 74 : 204);
       doc.text(`STATUS: ${job.status}`, 20, 30);
 
       doc.setDrawColor(200, 200, 200);
@@ -100,11 +101,11 @@ export default function SystemAdmin() {
       if (job.location) doc.text(`GPS Verification: ${job.location}`, 20, 85);
 
       doc.line(20, 95, 190, 95);
-      
+
       if (job.photo_url) {
         doc.setTextColor(0, 0, 0);
         doc.text("Proof of Work:", 20, 105);
-        
+
         const response = await fetch(API_URL, {
           method: "POST",
           headers: { "Content-Type": "text/plain;charset=utf-8" },
@@ -134,7 +135,7 @@ export default function SystemAdmin() {
   return (
     <div className="min-h-screen flex flex-col bg-[#F5F7FA]">
       <Navbar title="System Administrator" />
-      
+
       <main className="p-8 max-w-7xl mx-auto w-full flex-grow">
         <div className="flex justify-between items-center mb-8">
           <div className="flex gap-4 border-b border-gray-200 pb-2">
@@ -165,8 +166,8 @@ export default function SystemAdmin() {
                         <td className="p-4">
                           <div className="flex gap-4 items-center">
                             {job.photo_url ? <a href={job.photo_url} target="_blank" rel="noreferrer" className="text-blue-600 hover:text-blue-800 font-medium">📷 Photo</a> : <span className="text-gray-400">Awaiting</span>}
-                            <button 
-                              onClick={() => downloadPDF(job)} 
+                            <button
+                              onClick={() => downloadPDF(job)}
                               disabled={generatingPdfId === job.shipment_number}
                               className={`${generatingPdfId === job.shipment_number ? 'text-orange-500' : 'text-gray-500 hover:text-[#003A70]'} font-bold flex items-center gap-1 transition`}
                             >
@@ -183,22 +184,39 @@ export default function SystemAdmin() {
 
             {/* The rest of your SystemAdmin tabs (users, logs) remain identically intact! */}
             {activeTab === 'users' && (
-               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div className="col-span-1 bg-white p-6 rounded-xl shadow-sm border border-gray-100">
                   <h3 className="font-bold text-lg mb-4 text-[#003A70]">Create New User</h3>
                   <form onSubmit={handleCreateUser} className="space-y-4">
-                    <input type="text" placeholder="Username" value={newUser.username} onChange={e => setNewUser({...newUser, username: e.target.value})} className="w-full border p-2 rounded outline-none focus:ring-2 focus:ring-[#003A70]" required />
-                    <input type="text" placeholder="Password" value={newUser.password} onChange={e => setNewUser({...newUser, password: e.target.value})} className="w-full border p-2 rounded outline-none focus:ring-2 focus:ring-[#003A70]" required />
-                    <select value={newUser.role} onChange={e => setNewUser({...newUser, role: e.target.value})} className="w-full border p-2 rounded bg-white outline-none">
+                    <input type="text" placeholder="Username" value={newUser.username} onChange={e => setNewUser({ ...newUser, username: e.target.value })} className="w-full border p-2 rounded outline-none focus:ring-2 focus:ring-[#003A70]" required />
+                    <input type="text" placeholder="Password" value={newUser.password} onChange={e => setNewUser({ ...newUser, password: e.target.value })} className="w-full border p-2 rounded outline-none focus:ring-2 focus:ring-[#003A70]" required />
+                    <select value={newUser.role} onChange={e => setNewUser({ ...newUser, role: e.target.value })} className="w-full border p-2 rounded bg-white outline-none">
                       <option value="technician">Field Technician</option>
                       <option value="konica">Konica Upload Admin</option>
                       <option value="supervisor">Business Supervisor</option>
                       <option value="admin">System Admin (Developer)</option>
                     </select>
+
+                    {/* NEW: Company selector for access control */}
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-1">Assign to Company</label>
+                      <select 
+                        value={newUser.company} 
+                        onChange={e => setNewUser({ ...newUser, company: e.target.value })} 
+                        className="w-full border p-2 rounded bg-white outline-none"
+                      >
+                        <option value="RED">🔴 RED Company</option>
+                        <option value="BLUE">🔵 BLUE Company</option>
+                        <option value="GREEN">🟢 GREEN Company</option>
+                        <option value="YELLOW">🟡 YELLOW Company</option>
+                        <option value="NONE">⚪ NONE (for Konica / Admin only)</option>
+                      </select>
+                    </div>
+
                     <button type="submit" className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 rounded transition">Add User</button>
                   </form>
                 </div>
-                
+
                 <div className="col-span-2 bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
                   <table className="w-full text-left border-collapse text-sm">
                     <thead className="bg-gray-50 border-b"><tr className="text-gray-600 uppercase"><th className="p-4">Username</th><th className="p-4">Role</th><th className="p-4">Created</th></tr></thead>
